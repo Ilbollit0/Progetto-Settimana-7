@@ -1,19 +1,28 @@
 // main.js — punto di ingresso: tiene lo stato e collega gli eventi ai moduli.
 // Nell'HTML c'è un solo <script type="module" src="assets/js/main.js">.
-import { cercaSquadre, caricaEventi, caricaProssimi } from "./api.js";
+import { cercaSquadre, caricaEventi } from "./api.js";
 import { getPreferiti, isPreferita, aggiungiPreferita, rimuoviPreferita } from "./preferiti.js";
+import { initTema } from "./tema.js";
 import {
-  mostraSpinner, nascondiSpinner, mostraErrore, nascondiErrore,
-  renderRisultati, svuotaRisultati, renderPreferiti, mostraSezioneDettagli, renderDettagli,
-  renderAppuntamenti,
+  mostra, nascondi, mostraErrore, filtra,
+  renderRisultati, svuotaRisultati, renderPreferiti, aggiornaFiltri,
+  mostraSezioneDettagli, renderDettagli, renderEventiPreferite,
+  apriModaleSquadra, chiudiModaleSquadra, apriModaleEvento,
 } from "./ui.js";
 
 
 // === Stato ===
 
 let risultati = []; // ultime squadre trovate (istanze di Squadra)
-const prossimiPerSquadra = new Map(); // idTeam → Evento[] delle preferite già caricate
+let filtro = "tutti"; // "tutti" oppure un valore di strSport
+let squadraModale = null; // squadra aperta nella modale "info"
+const eventiPerSquadra = new Map(); // idTeam → { prossimi, ultimi } delle preferite
 const squadreFallite = new Set(); // idTeam delle preferite il cui caricamento è fallito
+const eventiNoti = new Map(); // idEvent → Evento: al click su una card partita ritroviamo i dati
+
+function registraEventi(eventi) {
+  eventi.forEach((e) => eventiNoti.set(e.id, e));
+}
 
 // Messaggio leggibile per l'utente.
 // fetch rifiuta con TypeError solo per errori di rete (offline, CORS, DNS).
@@ -26,38 +35,71 @@ function messaggioErrore(err) {
   return err.message;
 }
 
-// Ridisegna le due griglie: la stella sui risultati dipende dai preferiti
-function aggiornaGriglie() {
-  if (risultati.length > 0) renderRisultati(risultati, isPreferita);
-  renderPreferiti(getPreferiti());
+// Ridisegna tutto ciò che dipende da preferiti e filtro
+function aggiornaTutto() {
+  if (risultati.length > 0) renderRisultati(risultati, filtro, isPreferita);
+  renderPreferiti(getPreferiti(), filtro);
+  mostraEventiPreferite();
 }
 
 
-// === Ricerca squadre (debounce + AbortController) ===
+// === Caricamento con spinner, errore e AbortController ===
+// Ricerca e dettagli seguono lo stesso schema: lo scriviamo una volta sola.
+// Ogni caricatore ha il SUO AbortController (in una closure): una nuova
+// richiesta annulla solo la precedente dello stesso tipo.
 
-let controllerRicerca; // AbortController della ricerca in corso
+function creaCaricatore(idSpinner, idErrore, prefissoErrore) {
+  let controller;
+
+  return {
+    async carica(richiesta, mostraRisultato, inCasoDiErrore) {
+      controller?.abort(); // annulla la richiesta precedente, se ancora in corso
+      controller = new AbortController();
+      const { signal } = controller;
+
+      mostra(idSpinner);
+      nascondi(idErrore);
+
+      try {
+        mostraRisultato(await richiesta(signal));
+      } catch (err) {
+        if (err.name === "AbortError") return; // annullata da una richiesta più nuova: ignora
+        inCasoDiErrore?.();
+        mostraErrore(idErrore, `${prefissoErrore}: ${messaggioErrore(err)}`);
+      } finally {
+        // se è stata annullata, lo spinner serve alla richiesta nuova: non nasconderlo
+        if (!signal.aborted) nascondi(idSpinner);
+      }
+    },
+
+    annulla() {
+      controller?.abort();
+      nascondi(idSpinner);
+      nascondi(idErrore);
+    },
+  };
+}
+
+const ricerca = creaCaricatore("spinner-ricerca", "errore-ricerca", "Errore nella ricerca");
+const dettagli = creaCaricatore("spinner-dettagli", "errore-dettagli", "Errore nel caricamento delle partite");
+
+
+// === Ricerca squadre (debounce) ===
+
 let timeoutId; // timer del debounce
 
-async function cerca(query) {
-  controllerRicerca?.abort(); // annulla la ricerca precedente, se ancora in corso
-  controllerRicerca = new AbortController();
-  const { signal } = controllerRicerca;
-
-  mostraSpinner("spinner-ricerca");
-  nascondiErrore("errore-ricerca");
-
-  try {
-    risultati = await cercaSquadre(query, signal);
-    renderRisultati(risultati, isPreferita);
-  } catch (err) {
-    if (err.name === "AbortError") return; // annullata da una ricerca più nuova: ignora
-    risultati = [];
-    svuotaRisultati();
-    mostraErrore("errore-ricerca", `Errore nella ricerca: ${messaggioErrore(err)}`);
-  } finally {
-    // se è stata annullata, lo spinner serve alla ricerca nuova: non nasconderlo
-    if (!signal.aborted) nascondiSpinner("spinner-ricerca");
-  }
+function cerca(query) {
+  ricerca.carica(
+    (signal) => cercaSquadre(query, signal),
+    (squadre) => {
+      risultati = squadre;
+      renderRisultati(risultati, filtro, isPreferita);
+    },
+    () => {
+      risultati = [];
+      svuotaRisultati();
+    },
+  );
 }
 
 // Debounce: ogni tasto cancella il timer e ne parte uno nuovo;
@@ -67,9 +109,7 @@ document.getElementById("cerca").addEventListener("input", (e) => {
   clearTimeout(timeoutId); // prima del controllo: cancella anche un timer partito con una query più lunga
 
   if (query.length < 3) {
-    controllerRicerca?.abort(); // una fetch già partita non deve ripopolare la lista
-    nascondiSpinner("spinner-ricerca");
-    nascondiErrore("errore-ricerca");
+    ricerca.annulla(); // una fetch già partita non deve ripopolare la lista
     risultati = [];
     svuotaRisultati();
     return;
@@ -86,65 +126,61 @@ document.getElementById("form-ricerca").addEventListener("submit", (e) => {
 });
 
 
-// === Dettagli squadra (Promise.all + AbortController) ===
+// === Partite di una squadra (Promise.all dentro caricaEventi) ===
 
-let controllerDettagli; // click veloci su due card: vince l'ultima
-
-async function apriDettagli(squadra) {
-  controllerDettagli?.abort();
-  controllerDettagli = new AbortController();
-  const { signal } = controllerDettagli;
-
+function apriDettagli(squadra) {
   mostraSezioneDettagli(squadra);
-  mostraSpinner("spinner-dettagli");
-  nascondiErrore("errore-dettagli");
-
-  try {
-    renderDettagli(await caricaEventi(squadra.id, signal));
-  } catch (err) {
-    if (err.name === "AbortError") return;
-    mostraErrore("errore-dettagli", `Errore nel caricamento degli eventi: ${messaggioErrore(err)}`);
-  } finally {
-    if (!signal.aborted) nascondiSpinner("spinner-dettagli");
-  }
+  dettagli.carica(
+    (signal) => caricaEventi(squadra.id, signal),
+    (eventi) => {
+      registraEventi([...eventi.prossimi, ...eventi.ultimi]);
+      renderDettagli(eventi);
+    },
+  );
 }
 
 
-// === Prossimi appuntamenti delle preferite (Promise.allSettled) ===
+// === Partite delle preferite (Promise.allSettled) ===
 
 // allSettled aspetta TUTTE le promesse, anche quelle rifiutate:
 // una squadra che fallisce non blocca le altre (con Promise.all perderemmo tutto).
-async function caricaAppuntamenti(squadre) {
-  const esiti = await Promise.allSettled(squadre.map((s) => caricaProssimi(s.id)));
+async function caricaEventiPreferite(squadre) {
+  if (squadre.length === 0) return;
+  mostra("spinner-eventi-preferite");
+  const esiti = await Promise.allSettled(squadre.map((s) => caricaEventi(s.id)));
+  nascondi("spinner-eventi-preferite"); // allSettled non rifiuta mai: niente try/catch
 
   // esiti è nello stesso ordine di squadre: l'indice i collega esito e squadra
   esiti.forEach((esito, i) => {
     const id = squadre[i].id;
     if (esito.status === "fulfilled") {
-      prossimiPerSquadra.set(id, esito.value);
+      eventiPerSquadra.set(id, esito.value);
+      registraEventi([...esito.value.prossimi, ...esito.value.ultimi]);
       squadreFallite.delete(id);
     } else {
       squadreFallite.add(id);
     }
   });
-  mostraAppuntamenti();
+  mostraEventiPreferite();
 }
 
-// Unisce gli eventi delle preferite attuali, toglie i doppioni e li ordina per data
-function mostraAppuntamenti() {
-  const ids = getPreferiti().map((s) => s.id);
+// Map per idEvent: se due preferite giocano tra loro, la partita compare una volta sola
+const senzaDoppioni = (eventi) => [...new Map(eventi.map((e) => [e.id, e])).values()];
+const perData = (a, b) => a.chiaveOrdinamento().localeCompare(b.chiaveOrdinamento());
 
-  // Map per idEvent: se due preferite giocano tra loro, la partita compare una volta sola
-  const unici = new Map();
-  ids.flatMap((id) => prossimiPerSquadra.get(id) ?? [])
-    .forEach((evento) => unici.set(evento.id, evento));
+// Unisce gli eventi delle preferite attuali (filtrati per sport), toglie i doppioni e ordina
+function mostraEventiPreferite() {
+  const preferite = getPreferiti();
+  const caricati = preferite.map((s) => eventiPerSquadra.get(s.id)).filter(Boolean);
+  const prepara = (eventi) => filtra(senzaDoppioni(eventi), filtro);
 
-  const ordinati = [...unici.values()].sort((a, b) =>
-    a.chiaveOrdinamento().localeCompare(b.chiaveOrdinamento()),
-  );
-
-  const falliti = ids.filter((id) => squadreFallite.has(id)).length;
-  renderAppuntamenti(ordinati, falliti);
+  renderEventiPreferite({
+    prossimi: prepara(caricati.flatMap((x) => x.prossimi)).sort(perData),
+    // ultimi risultati: dal più recente al più vecchio (ordine inverso)
+    ultimi: prepara(caricati.flatMap((x) => x.ultimi)).sort((a, b) => perData(b, a)),
+    falliti: preferite.filter((s) => squadreFallite.has(s.id)).map((s) => s.nome),
+    nessunaPreferita: preferite.length === 0,
+  });
 }
 
 
@@ -160,23 +196,25 @@ function gestisciClickCard(e, elenco) {
   if (!squadra) return;
 
   switch (bottone.dataset.azione) {
-    case "dettagli": // click sulla card → dettagli, anche dalle preferite (senza ricercarla)
+    case "dettagli": // click sulla card → partite, anche dalle preferite (senza ricercarla)
       apriDettagli(squadra);
       break;
-    case "preferito": // ★ funziona da interruttore
+    case "info":
+      squadraModale = squadra;
+      apriModaleSquadra(squadra);
+      break;
+    case "preferito": // il cuore funziona da interruttore
       if (isPreferita(id)) {
         rimuoviPreferita(id);
-        mostraAppuntamenti(); // nessuna richiesta: basta ridisegnare senza quella squadra
       } else {
         aggiungiPreferita(squadra);
-        caricaAppuntamenti([squadra]); // solo la nuova: le altre sono già in memoria
+        caricaEventiPreferite([squadra]); // solo la nuova: le altre sono già in memoria
       }
-      aggiornaGriglie();
+      aggiornaTutto();
       break;
     case "rimuovi":
       rimuoviPreferita(id);
-      aggiornaGriglie();
-      mostraAppuntamenti();
+      aggiornaTutto();
       break;
   }
 }
@@ -184,10 +222,40 @@ function gestisciClickCard(e, elenco) {
 document.getElementById("risultati").addEventListener("click", (e) => gestisciClickCard(e, risultati));
 document.getElementById("preferiti").addEventListener("click", (e) => gestisciClickCard(e, getPreferiti()));
 
+// Modale info → "Vedi le partite": chiude la modale e carica le partite
+document.getElementById("modale-vedi-partite").addEventListener("click", () => {
+  chiudiModaleSquadra();
+  if (squadraModale) apriDettagli(squadraModale);
+});
+
+
+// === Click su una card partita → modale (event delegation su tutto il main) ===
+// Le card partita stanno in 4 griglie diverse: un solo listener le copre tutte.
+
+document.getElementById("contenuto").addEventListener("click", (e) => {
+  const card = e.target.closest("[data-evento]");
+  if (!card) return;
+  const evento = eventiNoti.get(card.dataset.evento);
+  if (evento) apriModaleEvento(evento);
+});
+
+
+// === Filtro per sport ===
+
+document.getElementById("filtri").addEventListener("click", (e) => {
+  const bottone = e.target.closest("[data-sport]");
+  if (!bottone) return;
+  filtro = bottone.dataset.sport;
+  aggiornaFiltri(filtro);
+  aggiornaTutto();
+});
+
 
 // === Avvio ===
 // Nessuna squadra predefinita nella ricerca: si vedono solo le preferite salvate,
-// e per tutte si caricano in parallelo i prossimi appuntamenti.
+// e per tutte si caricano in parallelo prossime partite e ultimi risultati.
 
-renderPreferiti(getPreferiti());
-if (getPreferiti().length > 0) caricaAppuntamenti(getPreferiti());
+initTema();
+aggiornaFiltri(filtro);
+aggiornaTutto();
+caricaEventiPreferite(getPreferiti());

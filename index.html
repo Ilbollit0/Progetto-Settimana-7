@@ -1,110 +1,221 @@
 <!DOCTYPE html>
-<html lang="it">
+<html lang="it" data-bs-theme="dark">
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SportsHub — Settimana VII Week Project</title>
-    <!-- Bootstrap 5: griglia responsive e componenti (card, alert, spinner, list-group) -->
+
+    <!-- Tema prima del primo disegno (niente "lampo" del tema sbagliato):
+         quello salvato, altrimenti quello del sistema operativo -->
+    <script>
+      (() => {
+        let tema = null;
+        try { tema = localStorage.getItem("sportshub.tema"); } catch {}
+        document.documentElement.dataset.bsTheme =
+          tema ?? (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+      })();
+    </script>
+
+    <!-- Font: Oswald per i titoli (stile sportivo), Barlow per il testo -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Oswald:wght@500;600;700&display=swap">
+    <!-- Bootstrap 5 (griglia e componenti) + Bootstrap Icons (<i class="bi bi-...">) -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <!-- Il nostro CSS dopo Bootstrap: a parità di specificità vince l'ultimo caricato -->
     <link rel="stylesheet" href="assets/css/style.css">
   </head>
   <body>
 
-    <header class="site-header text-white py-4 mb-4">
+    <a class="visually-hidden-focusable salta-contenuto" href="#contenuto">Vai al contenuto</a>
+
+    <!-- === Navbar fissa in alto === -->
+    <nav class="navbar sticky-top navbar-sportshub" aria-label="Principale">
       <div class="container">
-        <h1 class="display-6 fw-bold mb-1">SportsHub</h1>
-        <p class="mb-0 opacity-75">Cerca una squadra e scopri prossime partite e ultimi risultati.</p>
+        <a class="navbar-brand logo-testo" href="#">
+          <i class="bi bi-trophy-fill" aria-hidden="true"></i> SportsHub
+        </a>
+        <div class="d-flex align-items-center gap-2">
+          <a href="#sezione-preferiti" class="btn btn-outline-primary rounded-pill">
+            <i class="bi bi-heart-fill" aria-hidden="true"></i>
+            <span class="d-none d-sm-inline">Preferiti</span>
+            <span id="contatore-nav" class="badge rounded-pill text-bg-primary">0</span>
+          </a>
+          <!-- icona ed etichetta impostate da tema.js -->
+          <button type="button" id="bottone-tema" class="btn btn-outline-secondary rounded-circle bottone-tondo"></button>
+        </div>
+      </div>
+    </nav>
+
+    <!-- === Hero con la ricerca === -->
+    <header class="hero">
+      <div class="container hero-contenuto">
+        <h1 class="hero-titolo">SportsHub</h1>
+        <p class="hero-sottotitolo">Cerca una squadra, scopri prossime partite e ultimi risultati.</p>
+
+        <!-- Su mobile input e bottone vanno uno sotto l'altro (col-12),
+             da "sm" in su stanno sulla stessa riga (col-sm / col-sm-auto) -->
+        <form id="form-ricerca" class="row g-2" role="search">
+          <div class="col-12 col-sm">
+            <label for="cerca" class="visually-hidden">Nome della squadra</label>
+            <input type="search" id="cerca" name="cerca" class="form-control form-control-lg"
+                   placeholder="es. Arsenal, Juventus, Boston Celtics..." autocomplete="off" required>
+          </div>
+          <div class="col-12 col-sm-auto">
+            <button type="submit" class="btn btn-light btn-lg w-100 fw-semibold">
+              <i class="bi bi-search" aria-hidden="true"></i> Cerca
+            </button>
+          </div>
+        </form>
+        <p class="hero-nota">La ricerca parte da sola dopo 3 lettere. Chiave gratuita: una squadra per ricerca.</p>
+
+        <!-- Stati visivi: nascosti con "hidden", li mostra il JavaScript -->
+        <div id="spinner-ricerca" class="d-flex align-items-center gap-2 mt-3" hidden>
+          <div class="spinner-border spinner-border-sm" aria-hidden="true"></div>
+          <span role="status">Caricamento in corso...</span>
+        </div>
+        <div id="errore-ricerca" class="alert alert-danger mt-3 mb-0" role="alert" hidden></div>
       </div>
     </header>
 
-    <main class="container pb-5">
+    <main id="contenuto" class="container py-4 py-lg-5">
 
-      <!-- === Ricerca squadre === -->
-      <section class="card shadow-sm mb-4" aria-labelledby="titolo-ricerca">
-        <div class="card-body">
-          <h2 id="titolo-ricerca" class="h4">Cerca una squadra</h2>
-
-          <!-- Su mobile input e bottone vanno uno sotto l'altro (col-12),
-               da "sm" in su stanno sulla stessa riga (col-sm / col-sm-auto) -->
-          <form id="form-ricerca" class="row g-2" role="search">
-            <div class="col-12 col-sm">
-              <label for="cerca" class="visually-hidden">Nome della squadra</label>
-              <input type="search" id="cerca" name="cerca" class="form-control"
-                     placeholder="es. Arsenal, Juventus..." autocomplete="off" required>
-            </div>
-            <div class="col-12 col-sm-auto">
-              <button type="submit" class="btn btn-primary w-100">Cerca</button>
-            </div>
-          </form>
-          <p class="form-text mb-0">La ricerca parte da sola dopo 3 lettere, oppure premi Cerca.</p>
-
-          <!-- Stati visivi: nascosti con "hidden", li mostrerà il JavaScript -->
-          <div id="spinner-ricerca" class="d-flex align-items-center gap-2 mt-3" hidden>
-            <div class="spinner-border spinner-border-sm text-primary" aria-hidden="true"></div>
-            <span role="status">Caricamento in corso...</span>
-          </div>
-          <div id="errore-ricerca" class="alert alert-danger mt-3 mb-0" role="alert" hidden></div>
+      <!-- === Filtro per sport (campo strSport): vale per tutte le sezioni === -->
+      <div class="d-flex flex-wrap align-items-center gap-2 mb-4">
+        <span class="titolo-sezione h6 mb-0 me-1"><i class="bi bi-funnel-fill" aria-hidden="true"></i>Sport</span>
+        <div id="filtri" class="d-flex flex-wrap gap-2" role="group" aria-label="Filtra per sport">
+          <button type="button" class="btn btn-outline-primary rounded-pill pillola" data-sport="tutti">Tutti</button>
+          <button type="button" class="btn btn-outline-primary rounded-pill pillola" data-sport="Soccer">Calcio</button>
+          <button type="button" class="btn btn-outline-primary rounded-pill pillola" data-sport="Basketball">Basket</button>
+          <button type="button" class="btn btn-outline-primary rounded-pill pillola" data-sport="American Football">Football</button>
         </div>
-      </section>
+      </div>
 
-      <!-- === Lista squadre ===
-           Griglia: 1 colonna su mobile, 2 su tablet (md), 3 su desktop (lg), 4 su schermi larghi (xl).
-           Parte vuota: nessuna squadra predefinita, le card arrivano dopo la ricerca. -->
-      <section class="mb-5" aria-label="Risultati della ricerca">
+      <!-- === Squadre trovate: compare dopo la prima ricerca ===
+           Griglia: 1 colonna su mobile, 2 su tablet (md), 3 su desktop (lg), 4 su schermi larghi (xl). -->
+      <section id="risultati-section" class="sezione" aria-labelledby="titolo-risultati" hidden>
+        <h2 id="titolo-risultati" class="titolo-sezione">
+          <i class="bi bi-search" aria-hidden="true"></i>Squadre trovate
+        </h2>
         <div id="risultati" class="row row-cols-1 row-cols-md-2 row-cols-lg-3 row-cols-xl-4 g-3" aria-live="polite">
           <!-- card create da JavaScript -->
         </div>
       </section>
 
-      <!-- === Dettagli squadra: compare dopo il click su una card === -->
-      <section id="dettagli-section" class="card shadow-sm mb-5" aria-labelledby="dettagli-titolo" hidden>
-        <div class="card-body">
-          <h2 id="dettagli-titolo" class="h4 mb-3 d-flex align-items-center gap-3"><!-- logo + nome della squadra --></h2>
+      <!-- === Partite della squadra: compare dopo il click su una card === -->
+      <section id="dettagli-section" class="sezione" aria-labelledby="dettagli-titolo" hidden>
+        <h2 id="dettagli-titolo" class="titolo-sezione d-flex align-items-center gap-3"><!-- logo + nome --></h2>
+        <p class="small text-body-secondary">
+          Chiave gratuita: l'API restituisce una partita per lista e, da documentazione, solo quelle in casa.
+        </p>
 
-          <div id="spinner-dettagli" class="d-flex align-items-center gap-2 mb-3" hidden>
-            <div class="spinner-border spinner-border-sm text-primary" aria-hidden="true"></div>
-            <span role="status">Caricamento eventi...</span>
+        <div id="spinner-dettagli" class="d-flex align-items-center gap-2 mb-3" hidden>
+          <div class="spinner-border spinner-border-sm text-success" aria-hidden="true"></div>
+          <span role="status">Caricamento partite...</span>
+        </div>
+        <div id="errore-dettagli" class="alert alert-danger" role="alert" hidden></div>
+
+        <!-- Due colonne affiancate da tablet in su, una sotto l'altra su mobile -->
+        <div class="row g-4">
+          <div class="col-12 col-md-6">
+            <h3 class="sottotitolo-sezione"><i class="bi bi-calendar-event" aria-hidden="true"></i> Prossimi eventi</h3>
+            <div id="prossimi" class="row row-cols-1 g-3"></div>
           </div>
-          <div id="errore-dettagli" class="alert alert-danger" role="alert" hidden></div>
-
-          <!-- Due liste affiancate da tablet in su, una sotto l'altra su mobile -->
-          <div class="row g-4">
-            <div class="col-12 col-md-6">
-              <h3 class="h5">Prossimi eventi</h3>
-              <ul id="prossimi" class="list-group"></ul>
-            </div>
-            <div class="col-12 col-md-6">
-              <h3 class="h5">Ultimi risultati</h3>
-              <ul id="ultimi" class="list-group"></ul>
-            </div>
+          <div class="col-12 col-md-6">
+            <h3 class="sottotitolo-sezione"><i class="bi bi-flag-fill" aria-hidden="true"></i> Ultimi risultati</h3>
+            <div id="ultimi" class="row row-cols-1 g-3"></div>
           </div>
         </div>
       </section>
 
-      <!-- === Preferite (localStorage): stessa griglia responsive dei risultati === -->
-      <section class="mb-5" aria-labelledby="titolo-preferiti">
-        <h2 id="titolo-preferiti" class="h4">
-          Le tue squadre (<span id="contatore-preferiti" aria-live="polite">0</span>)
+      <!-- === Preferite (localStorage), richiudibili con il collapse di Bootstrap === -->
+      <section id="sezione-preferiti" class="sezione" aria-labelledby="titolo-preferiti">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+          <h2 id="titolo-preferiti" class="titolo-sezione mb-0">
+            <i class="bi bi-heart-fill" aria-hidden="true"></i>Le tue squadre (<span id="contatore-preferiti">0</span>)
+          </h2>
+          <!-- Bootstrap aggiorna da solo aria-expanded: il CSS sceglie il testo da mostrare -->
+          <button class="btn btn-sm btn-outline-secondary rounded-pill bottone-collassa" type="button"
+                  data-bs-toggle="collapse" data-bs-target="#preferiti-collapse"
+                  aria-expanded="true" aria-controls="preferiti-collapse">
+            <span class="testo-nascondi">Nascondi <i class="bi bi-chevron-up" aria-hidden="true"></i></span>
+            <span class="testo-mostra">Mostra <i class="bi bi-chevron-down" aria-hidden="true"></i></span>
+          </button>
+        </div>
+        <div id="preferiti-collapse" class="collapse show">
+          <p class="small text-body-secondary fst-italic">Salvate nel browser: sopravvivono al refresh.</p>
+          <div id="preferiti" class="row row-cols-1 row-cols-md-2 row-cols-lg-3 row-cols-xl-4 g-3">
+            <!-- card create da JavaScript -->
+          </div>
+        </div>
+      </section>
+
+      <!-- === Partite delle preferite, caricate all'avvio con Promise.allSettled === -->
+      <section id="eventi-preferite-section" class="sezione" aria-labelledby="titolo-appuntamenti" hidden>
+        <div id="spinner-eventi-preferite" class="d-flex align-items-center gap-2 mb-3" hidden>
+          <div class="spinner-border spinner-border-sm text-success" aria-hidden="true"></div>
+          <span role="status">Caricamento partite delle preferite...</span>
+        </div>
+        <div id="eventi-preferite-nota" class="alert alert-warning" role="status" hidden></div>
+
+        <h2 id="titolo-appuntamenti" class="titolo-sezione">
+          <i class="bi bi-calendar3" aria-hidden="true"></i>I tuoi prossimi appuntamenti
         </h2>
-        <p class="small text-body-secondary fst-italic">Salvate nel browser: sopravvivono al refresh.</p>
-        <div id="preferiti" class="row row-cols-1 row-cols-md-2 row-cols-lg-3 row-cols-xl-4 g-3">
-          <!-- card create da JavaScript -->
-        </div>
-      </section>
+        <div id="appuntamenti" class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-3 mb-5"></div>
 
-      <!-- === Prossimi appuntamenti delle preferite, in ordine di data ===
-           Caricati all'avvio con Promise.allSettled; nascosta se non ci sono preferite -->
-      <section id="appuntamenti-section" class="card shadow-sm" aria-labelledby="titolo-appuntamenti" hidden>
-        <div class="card-body">
-          <h2 id="titolo-appuntamenti" class="h4">I tuoi prossimi appuntamenti</h2>
-          <div id="appuntamenti-nota" class="alert alert-warning py-2" role="status" hidden></div>
-          <ul id="appuntamenti" class="list-group"></ul>
-        </div>
+        <h2 class="titolo-sezione">
+          <i class="bi bi-flag-fill" aria-hidden="true"></i>Ultimi risultati delle tue squadre
+        </h2>
+        <div id="ultimi-preferite" class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-3"></div>
       </section>
 
     </main>
 
+    <footer class="footer-sportshub py-4">
+      <div class="container d-flex flex-wrap justify-content-between gap-2 small">
+        <span>© 2026 SportsHub — Week Project Settimana VII</span>
+        <span>Dati: <a href="https://www.thesportsdb.com" target="_blank" rel="noopener noreferrer">TheSportsDB</a></span>
+      </div>
+    </footer>
+
+    <!-- === Modale "info squadra" (riempita da JS) === -->
+    <div class="modal fade" id="modale-squadra" tabindex="-1" aria-labelledby="modale-squadra-titolo" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2 class="modal-title titolo-sezione mb-0" id="modale-squadra-titolo"></h2>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button>
+          </div>
+          <div class="modal-body" id="modale-squadra-corpo"></div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Chiudi</button>
+            <button type="button" id="modale-vedi-partite" class="btn btn-primary">
+              <i class="bi bi-calendar-event" aria-hidden="true"></i> Vedi le partite
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- === Modale "dettagli partita" (riempita da JS) === -->
+    <div class="modal fade" id="modale-evento" tabindex="-1" aria-labelledby="modale-evento-titolo" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2 class="modal-title titolo-sezione mb-0" id="modale-evento-titolo"></h2>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button>
+          </div>
+          <div class="modal-body" id="modale-evento-corpo"></div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Chiudi</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bootstrap JS (modali e collapse): script classico, definisce la variabile globale "bootstrap" -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <!-- type="module": scope per file, strict mode, caricamento differito.
          Serve un server (Live Server): da file:// il browser blocca i moduli. -->
     <script type="module" src="assets/js/main.js"></script>
