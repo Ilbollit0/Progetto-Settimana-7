@@ -40,7 +40,8 @@ export async function cercaSquadre(nome, signal) {
 }
 
 // eventsnext.php?id=... → { events: [...] }
-async function caricaProssimi(idTeam, signal) {
+// Esportata: main.js la usa da sola per gli appuntamenti delle preferite
+export async function caricaProssimi(idTeam, signal) {
   const dati = await getJSON("eventsnext.php", { id: idTeam }, signal);
   return comeArray(dati.events).map((d) => new Evento(d));
 }

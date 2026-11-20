@@ -45,6 +45,8 @@ export class Evento {
   constructor(d) {
     this.id = d.idEvent;
     this.data = d.dateEvent; // "2026-11-21"
+    this.ora = d.strTime; // "17:30:00" (come la fornisce l'API)
+    this.lega = d.strLeague;
     this.casa = d.strHomeTeam;
     this.trasferta = d.strAwayTeam;
     this.punteggioCasa = d.intHomeScore; // null se la partita non è ancora giocata
@@ -63,5 +65,11 @@ export class Evento {
   punteggio() {
     if (this.punteggioCasa == null || this.punteggioTrasferta == null) return null;
     return `${this.punteggioCasa} - ${this.punteggioTrasferta}`;
+  }
+
+  // Chiave per l'ordine cronologico: "2026-11-21 17:30:00".
+  // Date e ore in formato ISO: l'ordine alfabetico coincide con quello temporale.
+  chiaveOrdinamento() {
+    return `${this.data ?? ""} ${this.ora ?? ""}`;
   }
 }
