@@ -65,6 +65,15 @@ body {
 }
 
 
+/* stretched-link copre tutta la card con un ::after:
+   i bottoni nel footer (☆ / Rimuovi) devono stare sopra, altrimenti
+   il click aprirebbe i dettagli invece di aggiungere ai preferiti */
+.btn-sopra {
+  position: relative;
+  z-index: 2;
+}
+
+
 /* Rispetta chi ha chiesto meno animazioni nelle impostazioni del sistema */
 @media (prefers-reduced-motion: reduce) {
   .card-squadra {

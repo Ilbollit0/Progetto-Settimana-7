@@ -37,6 +37,7 @@
               <button type="submit" class="btn btn-primary w-100">Cerca</button>
             </div>
           </form>
+          <p class="form-text mb-0">La ricerca parte da sola dopo 3 lettere, oppure premi Cerca.</p>
 
           <!-- Stati visivi: nascosti con "hidden", li mostrerà il JavaScript -->
           <div id="spinner-ricerca" class="d-flex align-items-center gap-2 mt-3" hidden>
@@ -57,9 +58,9 @@
       </section>
 
       <!-- === Dettagli squadra: compare dopo il click su una card === -->
-      <section id="dettagli-section" class="card shadow-sm" aria-labelledby="dettagli-titolo" hidden>
+      <section id="dettagli-section" class="card shadow-sm mb-5" aria-labelledby="dettagli-titolo" hidden>
         <div class="card-body">
-          <h2 id="dettagli-titolo" class="h4 mb-3"><!-- logo + nome della squadra --></h2>
+          <h2 id="dettagli-titolo" class="h4 mb-3 d-flex align-items-center gap-3"><!-- logo + nome della squadra --></h2>
 
           <div id="spinner-dettagli" class="d-flex align-items-center gap-2 mb-3" hidden>
             <div class="spinner-border spinner-border-sm text-primary" aria-hidden="true"></div>
@@ -81,7 +82,21 @@
         </div>
       </section>
 
+      <!-- === Preferite (localStorage): stessa griglia responsive dei risultati === -->
+      <section aria-labelledby="titolo-preferiti">
+        <h2 id="titolo-preferiti" class="h4">
+          Le tue squadre (<span id="contatore-preferiti" aria-live="polite">0</span>)
+        </h2>
+        <p class="small text-body-secondary fst-italic">Salvate nel browser: sopravvivono al refresh.</p>
+        <div id="preferiti" class="row row-cols-1 row-cols-md-2 row-cols-lg-3 row-cols-xl-4 g-3">
+          <!-- card create da JavaScript -->
+        </div>
+      </section>
+
     </main>
 
+    <!-- type="module": scope per file, strict mode, caricamento differito.
+         Serve un server (Live Server): da file:// il browser blocca i moduli. -->
+    <script type="module" src="assets/js/main.js"></script>
   </body>
 </html>
