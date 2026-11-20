@@ -1,129 +1,135 @@
 // classi.js — Squadra ed Evento: trasformano i dati grezzi dell'API in oggetti nostri.
-// I nomi dei campi letti (idTeam, strTeam, ...) devono combaciare con quelli di TheSportsDB.
+// I nomi dei campi dell'API (idTeam, strTeam, ...) devono combaciare con quelli di TheSportsDB.
+
+// Copia i campi dell'API nell'oggetto secondo una tabella { nostroNome: "nomeAPI" }
+function copiaCampi(oggetto, d, campi) {
+  for (const [nostro, api] of Object.entries(campi)) oggetto[nostro] = d[api];
+}
 
 
 // === Squadra ===
 
-export class Squadra {
-  // d = un elemento dell'array "teams" restituito da searchteams.php
-  constructor(d) {
-    this.id = d.idTeam;
-    this.nome = d.strTeam;
-    this.logo = d.strBadge; // può essere null o "": la UI mostra un segnaposto
-    this.lega = d.strLeague;
-    this.paese = d.strCountry;
-    this.sport = d.strSport;
+// Una sola tabella per le due direzioni: API → Squadra (costruttore) e Squadra → API (toJSON)
+const CAMPI_SQUADRA = {
+  id: "idTeam",
+  nome: "strTeam",
+  logo: "strBadge", // può essere null o "": la UI mostra un segnaposto
+  lega: "strLeague",
+  paese: "strCountry",
+  sport: "strSport",
+  colore: "strColour1", // es. "#12A0D7"
+  stadio: "strStadium",
+  fondazione: "intFormedYear",
+  sfondo: "strFanart1",
+  descrizioneIT: "strDescriptionIT",
+  descrizioneEN: "strDescriptionEN",
+  sito: "strWebsite", // senza protocollo: "www.sscnapoli.it"
+  facebook: "strFacebook",
+  twitter: "strTwitter",
+  instagram: "strInstagram",
+};
 
-    // Dati in più per la modale "info squadra"
-    this.colore = d.strColour1; // es. "#12A0D7"
-    this.stadio = d.strStadium;
-    this.fondazione = d.intFormedYear;
-    this.sfondo = d.strFanart1;
-    this.descrizioneIT = d.strDescriptionIT;
-    this.descrizioneEN = d.strDescriptionEN;
-    this.sito = d.strWebsite; // senza protocollo: "www.sscnapoli.it"
-    this.facebook = d.strFacebook;
-    this.twitter = d.strTwitter;
-    this.instagram = d.strInstagram;
+export class Squadra {
+  // d = un elemento dell'array "teams" di searchteams.php (o un preferito salvato)
+  constructor(d) {
+    copiaCampi(this, d, CAMPI_SQUADRA);
   }
 
   // Descrizione in italiano se c'è, altrimenti in inglese (o null)
   descrizione() {
     if (this.descrizioneIT) return { testo: this.descrizioneIT, lingua: "it" };
-    if (this.descrizioneEN) return { testo: this.descrizioneEN, lingua: "en" };
-    return null;
+    return this.descrizioneEN ? { testo: this.descrizioneEN, lingua: "en" } : null;
   }
 
-  // JSON.stringify chiama toJSON in automatico: in localStorage salviamo
-  // gli stessi nomi dell'API, così al reload basta "new Squadra(d)".
+  // JSON.stringify chiama toJSON in automatico: in localStorage salviamo i nomi
+  // dell'API, così al reload basta "new Squadra(d)"
   toJSON() {
-    return {
-      idTeam: this.id,
-      strTeam: this.nome,
-      strBadge: this.logo,
-      strLeague: this.lega,
-      strCountry: this.paese,
-      strSport: this.sport,
-      strColour1: this.colore,
-      strStadium: this.stadio,
-      intFormedYear: this.fondazione,
-      strFanart1: this.sfondo,
-      strDescriptionIT: this.descrizioneIT,
-      strDescriptionEN: this.descrizioneEN,
-      strWebsite: this.sito,
-      strFacebook: this.facebook,
-      strTwitter: this.twitter,
-      strInstagram: this.instagram,
-    };
+    return Object.fromEntries(Object.entries(CAMPI_SQUADRA).map(([nostro, api]) => [api, this[nostro]]));
   }
 }
 
 
 // === Evento ===
 
-// Un solo formatter riusato per tutti gli eventi (crearlo costa)
-const formatoData = new Intl.DateTimeFormat("it-IT", {
-  weekday: "short",
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-});
+const CAMPI_EVENTO = {
+  id: "idEvent",
+  titolo: "strEvent", // "Arsenal vs Hull City"
+  data: "dateEvent", // "2026-11-21"
+  ora: "strTime", // "17:30:00", così come la fornisce l'API
+  lega: "strLeague",
+  sport: "strSport",
+  casa: "strHomeTeam",
+  trasferta: "strAwayTeam",
+  badgeCasa: "strHomeTeamBadge",
+  badgeTrasferta: "strAwayTeamBadge",
+  punteggioCasa: "intHomeScore", // null se la partita non è ancora giocata
+  punteggioTrasferta: "intAwayScore",
+  stadio: "strVenue",
+  paese: "strCountry",
+  stagione: "strSeason",
+  giornata: "intRound",
+  stato: "strStatus", // "NS" = non iniziata, "FT" = finita (valori visti nelle risposte)
+  immagine: "strThumb",
+  video: "strVideo", // link YouTube agli highlights, se c'è
+};
+
+const STATI = { NS: "Da giocare", FT: "Terminata" };
+
+// Formatter creati una volta sola e riusati (crearli costa).
+// numeric: "auto" → "oggi", "domani", "ieri" invece di "tra 0 giorni", "tra 1 giorno"...
+const formatoData = new Intl.DateTimeFormat("it-IT", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+const formatoRelativo = new Intl.RelativeTimeFormat("it", { numeric: "auto" });
+const GIORNO_MS = 24 * 60 * 60 * 1000;
 
 export class Evento {
   // d = un elemento di "events" (eventsnext.php) o di "results" (eventslast.php)
   constructor(d) {
-    this.id = d.idEvent;
-    this.data = d.dateEvent; // "2026-11-21"
-    this.ora = d.strTime; // "17:30:00" (come la fornisce l'API)
-    this.lega = d.strLeague;
-    this.sport = d.strSport;
-    this.casa = d.strHomeTeam;
-    this.trasferta = d.strAwayTeam;
-    this.badgeCasa = d.strHomeTeamBadge;
-    this.badgeTrasferta = d.strAwayTeamBadge;
-    this.punteggioCasa = d.intHomeScore; // null se la partita non è ancora giocata
-    this.punteggioTrasferta = d.intAwayScore;
-    this.stadio = d.strVenue;
-    this.paese = d.strCountry;
-
-    // Dati in più per la modale "dettagli partita"
-    this.titolo = d.strEvent; // "Arsenal vs Hull City"
-    this.stagione = d.strSeason;
-    this.giornata = d.intRound;
-    this.stato = d.strStatus; // "NS" = non iniziata, "FT" = finita (valori visti nelle risposte)
+    copiaCampi(this, d, CAMPI_EVENTO);
     this.rinviata = d.strPostponed === "yes";
-    this.immagine = d.strThumb;
-    this.video = d.strVideo; // link YouTube agli highlights, se c'è
   }
 
-  // Codici di strStatus tradotti; un codice che non conosciamo lo mostriamo così com'è
+  // Codice di strStatus tradotto; uno sconosciuto si mostra così com'è
   statoLeggibile() {
     if (this.rinviata) return "Rinviata";
-    const STATI = { NS: "Da giocare", FT: "Terminata" };
     return STATI[this.stato] ?? this.stato ?? (this.punteggio() ? "Terminata" : "Da giocare");
   }
 
-  // "2026-11-21" → "sab 21 nov 2026".
-  // Con T00:00:00 la data è letta nel fuso locale (senza, sarebbe UTC).
+  // "2026-11-21" → "sab 21 nov 2026". Con T00:00:00 la data è nel fuso locale (senza, UTC)
   dataFormattata() {
-    if (!this.data) return "Data non disponibile";
-    return formatoData.format(new Date(`${this.data}T00:00:00`));
+    return this.data ? formatoData.format(new Date(`${this.data}T00:00:00`)) : "Data non disponibile";
   }
 
-  // "17:30:00" → "17:30" (orario così come lo fornisce l'API)
+  // Giorni da oggi: 0 = oggi, 1 = domani, -1 = ieri, null se manca la data.
+  // Confronta due mezzanotti locali (l'ora attuale non sposta il conto);
+  // Math.round assorbe l'ora in più/in meno del cambio ora legale.
+  giorniDaOggi(oggi = new Date()) {
+    if (!this.data) return null;
+    const mezzanotte = new Date(oggi.getFullYear(), oggi.getMonth(), oggi.getDate());
+    return Math.round((new Date(`${this.data}T00:00:00`) - mezzanotte) / GIORNO_MS);
+  }
+
+  // "oggi", "domani", "dopodomani", "tra 3 settimane", "2 settimane fa", "tra 3 mesi"...
+  // Sotto la settimana si contano i giorni, sotto il mese le settimane, poi i mesi.
+  tempoRelativo(oggi = new Date()) {
+    const giorni = this.giorniDaOggi(oggi);
+    if (giorni === null) return "";
+    if (Math.abs(giorni) < 7) return formatoRelativo.format(giorni, "day");
+    if (Math.abs(giorni) < 30) return formatoRelativo.format(Math.round(giorni / 7), "week");
+    return formatoRelativo.format(Math.round(giorni / 30), "month");
+  }
+
+  // "17:30:00" → "17:30"
   oraBreve() {
-    return this.ora ? this.ora.slice(0, 5) : "";
+    return this.ora?.slice(0, 5) ?? "";
   }
 
-  // "1 - 0", oppure null se non c'è punteggio (partita futura).
-  // == null copre sia null sia undefined.
+  // "1 - 0", oppure null se non c'è punteggio (== null copre null e undefined)
   punteggio() {
     if (this.punteggioCasa == null || this.punteggioTrasferta == null) return null;
     return `${this.punteggioCasa} - ${this.punteggioTrasferta}`;
   }
 
-  // Chiave per l'ordine cronologico: "2026-11-21 17:30:00".
-  // Date e ore in formato ISO: l'ordine alfabetico coincide con quello temporale.
+  // "2026-11-21 17:30:00": in formato ISO l'ordine alfabetico coincide con quello temporale
   chiaveOrdinamento() {
     return `${this.data ?? ""} ${this.ora ?? ""}`;
   }

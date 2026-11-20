@@ -10,9 +10,11 @@
     <script>
       (() => {
         let tema = null;
-        try { tema = localStorage.getItem("sportshub.tema"); } catch {}
-        document.documentElement.dataset.bsTheme =
-          tema ?? (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+        try { tema = JSON.parse(localStorage.getItem("sportshub.tema")); } catch {}
+        if (tema !== "light" && tema !== "dark") {
+          tema = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+        }
+        document.documentElement.dataset.bsTheme = tema;
       })();
     </script>
 
@@ -42,7 +44,7 @@
             <span class="d-none d-sm-inline">Preferiti</span>
             <span id="contatore-nav" class="badge rounded-pill text-bg-primary">0</span>
           </a>
-          <!-- icona ed etichetta impostate da tema.js -->
+          <!-- icona ed etichetta impostate da initTema() in ui.js -->
           <button type="button" id="bottone-tema" class="btn btn-outline-secondary rounded-circle bottone-tondo"></button>
         </div>
       </div>
@@ -52,7 +54,7 @@
     <header class="hero">
       <div class="container hero-contenuto">
         <h1 class="hero-titolo">SportsHub</h1>
-        <p class="hero-sottotitolo">Cerca una squadra, scopri prossime partite e ultimi risultati.</p>
+        <p class="fs-5">Cerca una squadra, scopri prossime partite e ultimi risultati.</p>
 
         <!-- Su mobile input e bottone vanno uno sotto l'altro (col-12),
              da "sm" in su stanno sulla stessa riga (col-sm / col-sm-auto) -->
@@ -60,15 +62,28 @@
           <div class="col-12 col-sm">
             <label for="cerca" class="visually-hidden">Nome della squadra</label>
             <input type="search" id="cerca" name="cerca" class="form-control form-control-lg"
-                   placeholder="es. Arsenal, Juventus, Boston Celtics..." autocomplete="off" required>
+                   placeholder="es. Arsenal, Los Angeles Lakers, Juventus..." autocomplete="off" required>
           </div>
           <div class="col-12 col-sm-auto">
-            <button type="submit" class="btn btn-light btn-lg w-100 fw-semibold">
+            <!-- durante il blocco di 60 secondi diventa "Riprova tra Ns" (main.js) -->
+            <button type="submit" id="bottone-cerca" class="btn btn-light btn-lg w-100 fw-semibold">
               <i class="bi bi-search" aria-hidden="true"></i> Cerca
             </button>
           </div>
         </form>
-        <p class="hero-nota">La ricerca parte da sola dopo 3 lettere. Chiave gratuita: una squadra per ricerca.</p>
+        <p class="hero-nota">
+          La ricerca parte da sola dopo 3 lettere. La chiave gratuita restituisce una sola squadra:
+          usa il nome completo.
+        </p>
+
+        <!-- Ricerche recenti (localStorage): pillole create da JS, nascoste se non ce ne sono -->
+        <div id="recenti-box" class="d-flex flex-wrap align-items-center gap-2 mt-3" hidden>
+          <span class="small fw-semibold">
+            <i class="bi bi-clock-history" aria-hidden="true"></i> Recenti:
+          </span>
+          <div id="recenti" class="d-flex flex-wrap gap-2"></div>
+          <button type="button" id="svuota-recenti" class="btn btn-sm btn-link link-light p-0 ms-1">Cancella</button>
+        </div>
 
         <!-- Stati visivi: nascosti con "hidden", li mostra il JavaScript -->
         <div id="spinner-ricerca" class="d-flex align-items-center gap-2 mt-3" hidden>
@@ -84,28 +99,42 @@
       <!-- === Filtro per sport (campo strSport): vale per tutte le sezioni === -->
       <div class="d-flex flex-wrap align-items-center gap-2 mb-4">
         <span class="titolo-sezione h6 mb-0 me-1"><i class="bi bi-funnel-fill" aria-hidden="true"></i>Sport</span>
-        <div id="filtri" class="d-flex flex-wrap gap-2" role="group" aria-label="Filtra per sport">
-          <button type="button" class="btn btn-outline-primary rounded-pill pillola" data-sport="tutti">Tutti</button>
-          <button type="button" class="btn btn-outline-primary rounded-pill pillola" data-sport="Soccer">Calcio</button>
-          <button type="button" class="btn btn-outline-primary rounded-pill pillola" data-sport="Basketball">Basket</button>
-          <button type="button" class="btn btn-outline-primary rounded-pill pillola" data-sport="American Football">Football</button>
-        </div>
+        <!-- Pillole create da JS: Tutti, Calcio, Basket, Football + gli altri sport
+             presenti tra risultati e preferite (es. Hockey su ghiaccio, Baseball, Rugby) -->
+        <div id="filtri" class="d-flex flex-wrap gap-2" role="group" aria-label="Filtra per sport"></div>
       </div>
 
       <!-- === Squadre trovate: compare dopo la prima ricerca ===
            Griglia: 1 colonna su mobile, 2 su tablet (md), 3 su desktop (lg), 4 su schermi larghi (xl). -->
       <section id="risultati-section" class="sezione" aria-labelledby="titolo-risultati" hidden>
-        <h2 id="titolo-risultati" class="titolo-sezione">
-          <i class="bi bi-search" aria-hidden="true"></i>Squadre trovate
-        </h2>
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+          <h2 id="titolo-risultati" class="titolo-sezione mb-0">
+            <i class="bi bi-search" aria-hidden="true"></i>Squadre trovate
+          </h2>
+          <!-- Torna alla pagina iniziale (funziona anche il tasto Indietro del browser) -->
+          <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill torna-indietro">
+            <i class="bi bi-arrow-left" aria-hidden="true"></i> Torna indietro
+          </button>
+        </div>
         <div id="risultati" class="row row-cols-1 row-cols-md-2 row-cols-lg-3 row-cols-xl-4 g-3" aria-live="polite">
           <!-- card create da JavaScript -->
         </div>
+        <!-- Con un nome corto l'API può restituire un'altra squadra ("Lakers" → Roosevelt, football NCAA) -->
+        <p class="small text-body-secondary mt-3 mb-0">
+          <i class="bi bi-lightbulb" aria-hidden="true"></i>
+          Non è la squadra che cercavi? La chiave gratuita restituisce un solo risultato:
+          prova il nome completo, es. «Los Angeles Lakers» invece di «Lakers».
+        </p>
       </section>
 
       <!-- === Partite della squadra: compare dopo il click su una card === -->
       <section id="dettagli-section" class="sezione" aria-labelledby="dettagli-titolo" hidden>
-        <h2 id="dettagli-titolo" class="titolo-sezione d-flex align-items-center gap-3"><!-- logo + nome --></h2>
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+          <h2 id="dettagli-titolo" class="titolo-sezione d-flex align-items-center gap-3 mb-0"><!-- logo + nome --></h2>
+          <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill torna-indietro">
+            <i class="bi bi-arrow-left" aria-hidden="true"></i> Torna indietro
+          </button>
+        </div>
         <p class="small text-body-secondary">
           Chiave gratuita: l'API restituisce una partita per lista e, da documentazione, solo quelle in casa.
         </p>
@@ -172,7 +201,7 @@
 
     </main>
 
-    <footer class="footer-sportshub py-4">
+    <footer class="footer-sportshub border-top text-body-secondary py-4">
       <div class="container d-flex flex-wrap justify-content-between gap-2 small">
         <span>© 2026 SportsHub — Week Project Settimana VII</span>
         <span>Dati: <a href="https://www.thesportsdb.com" target="_blank" rel="noopener noreferrer">TheSportsDB</a></span>
@@ -207,9 +236,6 @@
             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button>
           </div>
           <div class="modal-body" id="modale-evento-corpo"></div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Chiudi</button>
-          </div>
         </div>
       </div>
     </div>
