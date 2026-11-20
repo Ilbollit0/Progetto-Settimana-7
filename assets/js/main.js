@@ -1,16 +1,19 @@
 // main.js — punto di ingresso: tiene lo stato e collega gli eventi ai moduli.
 // Nell'HTML c'è un solo <script type="module" src="assets/js/main.js">.
-import { cercaSquadre, caricaEventi } from "./api.js";
+import { cercaSquadre, caricaEventi, caricaProssimi } from "./api.js";
 import { getPreferiti, isPreferita, aggiungiPreferita, rimuoviPreferita } from "./preferiti.js";
 import {
   mostraSpinner, nascondiSpinner, mostraErrore, nascondiErrore,
   renderRisultati, svuotaRisultati, renderPreferiti, mostraSezioneDettagli, renderDettagli,
+  renderAppuntamenti,
 } from "./ui.js";
 
 
 // === Stato ===
 
 let risultati = []; // ultime squadre trovate (istanze di Squadra)
+const prossimiPerSquadra = new Map(); // idTeam → Evento[] delle preferite già caricate
+const squadreFallite = new Set(); // idTeam delle preferite il cui caricamento è fallito
 
 // Messaggio leggibile per l'utente.
 // fetch rifiuta con TypeError solo per errori di rete (offline, CORS, DNS).
@@ -107,6 +110,44 @@ async function apriDettagli(squadra) {
 }
 
 
+// === Prossimi appuntamenti delle preferite (Promise.allSettled) ===
+
+// allSettled aspetta TUTTE le promesse, anche quelle rifiutate:
+// una squadra che fallisce non blocca le altre (con Promise.all perderemmo tutto).
+async function caricaAppuntamenti(squadre) {
+  const esiti = await Promise.allSettled(squadre.map((s) => caricaProssimi(s.id)));
+
+  // esiti è nello stesso ordine di squadre: l'indice i collega esito e squadra
+  esiti.forEach((esito, i) => {
+    const id = squadre[i].id;
+    if (esito.status === "fulfilled") {
+      prossimiPerSquadra.set(id, esito.value);
+      squadreFallite.delete(id);
+    } else {
+      squadreFallite.add(id);
+    }
+  });
+  mostraAppuntamenti();
+}
+
+// Unisce gli eventi delle preferite attuali, toglie i doppioni e li ordina per data
+function mostraAppuntamenti() {
+  const ids = getPreferiti().map((s) => s.id);
+
+  // Map per idEvent: se due preferite giocano tra loro, la partita compare una volta sola
+  const unici = new Map();
+  ids.flatMap((id) => prossimiPerSquadra.get(id) ?? [])
+    .forEach((evento) => unici.set(evento.id, evento));
+
+  const ordinati = [...unici.values()].sort((a, b) =>
+    a.chiaveOrdinamento().localeCompare(b.chiaveOrdinamento()),
+  );
+
+  const falliti = ids.filter((id) => squadreFallite.has(id)).length;
+  renderAppuntamenti(ordinati, falliti);
+}
+
+
 // === Click sulle card (event delegation) ===
 
 // Stessa funzione per le due griglie: cambia solo l'elenco in cui cercare la squadra
@@ -123,13 +164,19 @@ function gestisciClickCard(e, elenco) {
       apriDettagli(squadra);
       break;
     case "preferito": // ★ funziona da interruttore
-      if (isPreferita(id)) rimuoviPreferita(id);
-      else aggiungiPreferita(squadra);
+      if (isPreferita(id)) {
+        rimuoviPreferita(id);
+        mostraAppuntamenti(); // nessuna richiesta: basta ridisegnare senza quella squadra
+      } else {
+        aggiungiPreferita(squadra);
+        caricaAppuntamenti([squadra]); // solo la nuova: le altre sono già in memoria
+      }
       aggiornaGriglie();
       break;
     case "rimuovi":
       rimuoviPreferita(id);
       aggiornaGriglie();
+      mostraAppuntamenti();
       break;
   }
 }
@@ -139,6 +186,8 @@ document.getElementById("preferiti").addEventListener("click", (e) => gestisciCl
 
 
 // === Avvio ===
-// Nessuna squadra predefinita nella ricerca: si vedono solo le preferite salvate.
+// Nessuna squadra predefinita nella ricerca: si vedono solo le preferite salvate,
+// e per tutte si caricano in parallelo i prossimi appuntamenti.
 
 renderPreferiti(getPreferiti());
+if (getPreferiti().length > 0) caricaAppuntamenti(getPreferiti());

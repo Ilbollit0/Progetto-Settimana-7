@@ -150,7 +150,8 @@ export function svuotaRisultati() {
 
 // === Dettagli squadra: prossimi eventi e ultimi risultati ===
 
-function creaRigaEvento(evento) {
+// conLega: negli appuntamenti ci sono squadre diverse, utile sapere il campionato
+function creaRigaEvento(evento, conLega = false) {
   const li = crea("li", "list-group-item");
 
   const testa = crea("div", "d-flex justify-content-between align-items-center gap-2");
@@ -159,16 +160,17 @@ function creaRigaEvento(evento) {
   if (punteggio) testa.append(crea("span", "badge text-bg-dark fs-6", punteggio));
 
   li.append(testa, crea("div", "fw-semibold", `${evento.casa} vs ${evento.trasferta}`));
+  if (conLega && evento.lega) li.append(crea("small", "text-body-secondary", evento.lega));
   return li;
 }
 
-function riempiLista(id, eventi, testoVuoto) {
+function riempiLista(id, eventi, testoVuoto, conLega = false) {
   const lista = document.getElementById(id);
   if (eventi.length === 0) {
     lista.replaceChildren(crea("li", "list-group-item text-body-secondary fst-italic", testoVuoto));
     return;
   }
-  lista.replaceChildren(...eventi.map(creaRigaEvento));
+  lista.replaceChildren(...eventi.map((e) => creaRigaEvento(e, conLega)));
 }
 
 // Mostra la sezione con logo e nome, svuota le liste della squadra precedente
@@ -189,4 +191,21 @@ export function mostraSezioneDettagli(squadra) {
 export function renderDettagli({ prossimi, ultimi }) {
   riempiLista("prossimi", prossimi, "Nessun evento in programma.");
   riempiLista("ultimi", ultimi, "Nessun risultato disponibile.");
+}
+
+
+// === Prossimi appuntamenti delle preferite ===
+
+// eventi: già ordinati per data; falliti: quante preferite non si sono caricate
+export function renderAppuntamenti(eventi, falliti) {
+  const sezione = document.getElementById("appuntamenti-section");
+  // nessuna preferita (o nessun dato): la sezione resta nascosta
+  sezione.hidden = eventi.length === 0 && falliti === 0;
+  riempiLista("appuntamenti", eventi, "Nessun appuntamento in programma.", true);
+
+  const nota = document.getElementById("appuntamenti-nota");
+  nota.hidden = falliti === 0;
+  nota.textContent = falliti === 1
+    ? "1 squadra non è stata caricata: riprova più tardi."
+    : `${falliti} squadre non sono state caricate: riprova più tardi.`;
 }
